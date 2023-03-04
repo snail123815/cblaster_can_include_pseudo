@@ -17,12 +17,13 @@ warnings.simplefilter('ignore', BiopythonParserWarning)
 
 LOG = logging.getLogger("cblaster")
 
-FASTA_SUFFIXES = (".fa", ".fsa", ".fna", ".fasta", ".faa", 
-    ".fa.gz", ".fsa.gz", ".fna.gz", ".fasta.gz", ".faa.gz")
+FASTA_SUFFIXES = (".fa", ".fsa", ".fna", ".fasta", ".faa",
+                  ".fa.gz", ".fsa.gz", ".fna.gz", ".fasta.gz", ".faa.gz")
 GBK_SUFFIXES = (".gbk", ".gb", ".genbank", ".gbf", ".gbff")
 GFF_SUFFIXES = (".gtf", ".gff", ".gff3")
 EMBL_SUFFIXES = (".embl", ".emb")
 LIST_SUFFIXES = (".txt")
+
 
 def return_file_handle(input_file):
     """
@@ -34,6 +35,7 @@ def return_file_handle(input_file):
     else:
         normal_fh = open(input_file, "r")
         return normal_fh
+
 
 def find_overlapping_location(feature, locations):
     """Finds the index of a gene location containing `feature`.
@@ -67,15 +69,39 @@ def find_gene_name(qualifiers):
     return "N.A."
 
 
+# def find_translation(record, feature):
+#    if not feature or "pseudo" in feature.qualifiers:
+#        return ""
+#    if "translation" in feature.qualifiers:
+#        translation = feature.qualifiers.pop("translation", "")
+#        if isinstance(translation, list):
+#            translation = translation[0]
+#        return translation
+#    return str(feature.extract(record.seq).translate())
+
 def find_translation(record, feature):
-    if not feature or "pseudo" in feature.qualifiers:
+    if not feature:
         return ""
+    if "pseudo" in feature.qualifiers:
+        pass
+        # return ""
     if "translation" in feature.qualifiers:
         translation = feature.qualifiers.pop("translation", "")
+        # I do not understand why use pop.
         if isinstance(translation, list):
             translation = translation[0]
         return translation
-    return str(feature.extract(record.seq).translate())
+    dna = feature.extract(record.seq)
+    # remove sequences from the end if length is not multiple of three
+    dna += 'N' * ((3 - len(dna) % 3) % 3)
+    # 3 frame translation
+    translations = [s.translate(to_stop=True) for s in [
+        dna, dna[1:-2], dna[2:-1]
+    ]]
+    # get the longest translation, keep the order.
+    return str(sorted(translations,
+                      key=lambda x: len(x),
+                      reverse=True)[0])
 
 
 def find_fasta(gff_path):
@@ -172,7 +198,8 @@ def parse_gff(path):
         # Normalise Feature location based on ##sequence-region directive.
         # Necessary for extracted GFF3 files that still store coordinates
         # relative to the entire region, not to the extracted FASTA.
-        # If no sequence-region directive is found, assumes 1 (i.e. sequence start).
+        # If no sequence-region directive is found, assumes 1 (i.e. sequence
+        # start).
         cds, gene = parse_cds_features(
             gff.region(seqid=record.id, featuretype=["gene", "CDS"]),
             regions[record.id][0] - 1 if record.id in regions else 0
@@ -189,14 +216,15 @@ def parse_gff(path):
 
 def find_files(paths, recurse=True, level=0):
     files = []
-    if len(paths)==1 and Path(paths[0]).suffix in LIST_SUFFIXES:
+    if len(paths) == 1 and Path(paths[0]).suffix in LIST_SUFFIXES:
         files.append(paths[0])
     else:
         for path in paths:
             _path = Path(path)
             if _path.is_dir():
                 if level == 0 or recurse:
-                    _files = find_files(_path.iterdir(), recurse=recurse, level=level + 1)
+                    _files = find_files(
+                        _path.iterdir(), recurse=recurse, level=level + 1)
                     files.extend(_files)
             else:
                 ext = _path.suffix.lower()
@@ -282,7 +310,15 @@ def seqrecord_to_tuples(record, source):
         source_id = str(source)
 
         # Create the actual tuple
-        row = ("gene", name, start, end, strand, translation, record_id, source_id)
+        row = (
+            "gene",
+            name,
+            start,
+            end,
+            strand,
+            translation,
+            record_id,
+            source_id)
         rows.append(row)
 
     scaffold = (
